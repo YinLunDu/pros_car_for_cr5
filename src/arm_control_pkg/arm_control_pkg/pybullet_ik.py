@@ -9,7 +9,7 @@
 # Input:
 # 1. robot_type: specify urdf file initials eg. if urdf file name is 'ur5.urdf', specify 'ur5'
 # 2. controllable_joints: joint indices of controllable joints. If not specified, by default all joints indices except first joint (first joint is fixed joint between robot stand and base)
-# 3. end-eff_index: specify the joint indices for end-effector link. If not specified, by default the last controllable_joints is considered as end-effector joint
+# 3. end-eff_index: specify the joint indices for end-effector link. If controllable_jointsnot specified, by default the last  is considered as end-effector joint
 # 4. time_Step: time step for simulation
 
 import pybullet as p
@@ -28,14 +28,10 @@ class PybulletRobotController:
     def __init__(self, arm_params, arm_angle_control_node):
         self.arm_params = arm_params.get_arm_params()
         self.arm_angle_control_node = arm_angle_control_node
-        # self.robot_type = "ur5"
         robot_description_path = get_package_share_directory("robot_description")
-        self.urdf_path = os.path.join(robot_description_path, "urdf", "target.urdf")
+        self.urdf_path = os.path.join(robot_description_path, "urdf", "with_craw.urdf")
         self.robot_id = None
         self.num_joints = None
-        self.controllable_joints = int(
-            self.arm_params["pybullet"]["controllable_joints"]
-        )
         self.end_eff_index = int(self.arm_params["pybullet"]["end_eff_index"])
         self.time_step = float(self.arm_params["pybullet"]["time_step"])
         self.previous_ee_position = None
@@ -47,8 +43,7 @@ class PybulletRobotController:
 
         # synchronize the robot with the initial position
         self.set_initial_joint_positions()
-        # self.draw_link_axes(link_name="camera_1")
-        self.mimic_pairs = {}  # {主控_joint_index: 被控_joint_index}
+        self.mimic_pairs = {}
         self.marker_ids = []
         self.transformed_object_marker_ids = []
 
@@ -660,12 +655,22 @@ class PybulletRobotController:
         print(f"初始關節角度 (角度): {initial_positions_deg}")
         initial_positions_rad = [math.radians(angle) for angle in initial_positions_deg]
 
+        # 補齊長度
+        if len(initial_positions_rad) < len(self.controllable_joints):
+            initial_positions_rad += [0.0] * (len(self.controllable_joints) - len(initial_positions_rad))
+        elif len(initial_positions_rad) > len(self.controllable_joints):
+            initial_positions_rad = initial_positions_rad[:len(self.controllable_joints)]
+
         # 設置關節位置
         self.setJointPosition(initial_positions_rad)
 
     # function for setting joint positions of robot in pybullet
     def setJointPosition(self, position, kp=1.0, kv=1.0):
-        # print('Joint position controller')
+        # 自動補齊長度
+        if len(position) < len(self.controllable_joints):
+            position += [0.0] * (len(self.controllable_joints) - len(position))
+        elif len(position) > len(self.controllable_joints):
+            position = position[:len(self.controllable_joints)]
         zero_vec = [0.0] * len(self.controllable_joints)
         p.setJointMotorControlArray(
             self.robot_id,
@@ -676,7 +681,7 @@ class PybulletRobotController:
             positionGains=[kp] * len(self.controllable_joints),
             velocityGains=[kv] * len(self.controllable_joints),
         )
-        for _ in range(100):  # to settle the robot to its position
+        for _ in range(100):
             p.stepSimulation()
 
     def transform_object_to_world(
@@ -851,7 +856,7 @@ class PybulletRobotController:
     def createWorld(self, GUI=True, view_world=False):
         # load pybullet physics engine
         if GUI:
-            physicsClient = p.connect(p.GUI)
+            physicsClient = p.connect(p.GUI, "option=opengl2")
         else:
             physicsClient = p.connect(p.DIRECT)
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
